@@ -11,6 +11,13 @@ const apartmentSchema = new mongoose.Schema(
       type: String,
       required: true
     },
+    code: {
+      type: String,
+      unique: true,
+      uppercase: true,
+      trim: true,
+      index: true
+    },
     contactEmail: {
       type: String
     }

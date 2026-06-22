@@ -31,6 +31,12 @@ const complaintSchema = new mongoose.Schema(
       default: "OPEN",
     },
 
+    // Photos attached by the resident when raising the complaint (base64 data URLs)
+    images: {
+      type: [String],
+      default: [],
+    },
+
     proofImages: {
       before: String,
       after: String,

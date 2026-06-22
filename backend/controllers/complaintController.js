@@ -3,7 +3,7 @@ import User from "../models/User.js";
 
 export const createComplaint = async (req, res) => {
   try {
-    const { title, description, category, priority } = req.body;
+    const { title, description, category, priority, images } = req.body;
 
     // SLA Logic
     let slaHours;
@@ -13,11 +13,17 @@ export const createComplaint = async (req, res) => {
 
     const slaDeadline = new Date(Date.now() + slaHours * 60 * 60 * 1000);
 
+    // Keep only valid image data URLs, max 4
+    const safeImages = Array.isArray(images)
+      ? images.filter((img) => typeof img === "string" && img.startsWith("data:image/")).slice(0, 4)
+      : [];
+
     const complaint = await Complaint.create({
       title,
       description,
       category,
       priority,
+      images: safeImages,
       apartmentId: req.user.apartmentId,
       createdBy: req.user._id,
       slaDeadline,

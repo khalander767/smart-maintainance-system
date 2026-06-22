@@ -22,6 +22,7 @@ async function seed() {
   const apartment = await Apartment.create({
     name: "Sunshine Apartments",
     address: "123 Main Street, Hyderabad",
+    code: "SUN123",
     contactEmail: "sunshine@apartments.com",
   });
 
@@ -218,6 +219,7 @@ async function seed() {
   ]);
 
   console.log("\n✅ Seed complete!\n");
+  console.log(`APARTMENT JOIN CODE (for resident signup): ${apartment.code}\n`);
   console.log("=== LOGIN CREDENTIALS ===");
   console.log("ADMIN:      admin@sunshine.com     / admin123");
   console.log("TECHNICIAN: ravi@sunshine.com      / tech123");
