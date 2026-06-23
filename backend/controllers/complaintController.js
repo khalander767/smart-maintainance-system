@@ -120,8 +120,12 @@ export const resolveComplaint = async (req, res) => {
     complaint.resolvedAt = now;
     complaint.autoCloseAt = new Date(now.getTime() + 24 * 60 * 60 * 1000);
 
-    if (beforeImage || afterImage) {
-      complaint.proofImages = { before: beforeImage, after: afterImage };
+    const isImg = (v) => typeof v === "string" && v.startsWith("data:image/");
+    if (isImg(beforeImage) || isImg(afterImage)) {
+      complaint.proofImages = {
+        before: isImg(beforeImage) ? beforeImage : "",
+        after: isImg(afterImage) ? afterImage : "",
+      };
     }
 
     // SLA breach check
@@ -154,10 +158,10 @@ export const reopenComplaint = async (req, res) => {
       return res.status(404).json({ message: "Complaint not found" });
     }
 
-    // Only RESOLVED complaints can be reopened
-    if (complaint.status !== "RESOLVED") {
+    // Only RESOLVED or CLOSED complaints can be reopened
+    if (!["RESOLVED", "CLOSED"].includes(complaint.status)) {
       return res.status(400).json({
-        message: "Only RESOLVED complaints can be reopened",
+        message: "Only resolved or closed complaints can be reopened",
       });
     }
 
@@ -176,6 +180,46 @@ export const reopenComplaint = async (req, res) => {
 
     res.json({
       message: "Complaint reopened successfully",
+      complaint,
+    });
+  } catch (error) {
+    res.status(500).json({ message: "Something went wrong. Please try again." });
+  }
+};
+
+export const cancelComplaint = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    // Find complaint within same apartment
+    const complaint = await Complaint.findOne({
+      _id: id,
+      apartmentId: req.user.apartmentId,
+    });
+
+    if (!complaint) {
+      return res.status(404).json({ message: "Complaint not found" });
+    }
+
+    // Only the resident who created it can cancel
+    if (complaint.createdBy.toString() !== req.user._id.toString()) {
+      return res.status(403).json({
+        message: "You can only revoke your own complaints",
+      });
+    }
+
+    // Can only revoke before a technician starts work
+    if (!["OPEN", "REOPENED"].includes(complaint.status)) {
+      return res.status(400).json({
+        message: "This complaint can no longer be revoked",
+      });
+    }
+
+    complaint.status = "CANCELLED";
+    await complaint.save();
+
+    res.json({
+      message: "Complaint revoked successfully",
       complaint,
     });
   } catch (error) {

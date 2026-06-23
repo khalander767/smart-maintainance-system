@@ -33,8 +33,12 @@ const app = express();
 // Security headers
 app.use(helmet());
 
-// CORS
-const allowedOrigins = ["http://localhost:5173", "http://localhost:3000"];
+// CORS — localhost for dev, plus the deployed frontend URL via CLIENT_URL
+const allowedOrigins = [
+  "http://localhost:5173",
+  "http://localhost:3000",
+  ...(process.env.CLIENT_URL ? [process.env.CLIENT_URL] : []),
+];
 app.use(
   cors({
     origin: (origin, callback) => {

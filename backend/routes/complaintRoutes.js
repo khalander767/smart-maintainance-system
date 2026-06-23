@@ -4,6 +4,7 @@ import {
   assignTechnician,
   resolveComplaint,
   reopenComplaint,
+  cancelComplaint,
   getComplaints,
   getComplaintById,
   getAdminDashboard,
@@ -20,5 +21,6 @@ router.get("/:id", protect, getComplaintById);
 router.put("/:id/assign", protect, authorize("ADMIN"), assignTechnician);
 router.put("/:id/resolve", protect, authorize("TECHNICIAN"), resolveComplaint);
 router.put("/:id/reopen", protect, authorize("RESIDENT"), reopenComplaint);
+router.put("/:id/cancel", protect, authorize("RESIDENT"), cancelComplaint);
 
 export default router;
