@@ -9,7 +9,13 @@ import Complaint from "./models/Complaint.js";
 dotenv.config();
 
 async function seed() {
-  await mongoose.connect(process.env.MONGO_URI);
+  if (process.env.ALLOW_DESTRUCTIVE_SEED !== "true") {
+    throw new Error(
+      "Seed aborted. Set ALLOW_DESTRUCTIVE_SEED=true only when you intentionally want to erase and replace database data."
+    );
+  }
+
+  await mongoose.connect(process.env.MONGO_URI, { dbName: process.env.MONGO_DB_NAME });
   console.log("Connected to MongoDB");
 
   // Clear existing data

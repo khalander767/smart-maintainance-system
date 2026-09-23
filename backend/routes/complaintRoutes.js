@@ -14,7 +14,7 @@ import { authorize } from "../middleware/roleMiddleware.js";
 
 const router = express.Router();
 
-router.post("/", protect, authorize("RESIDENT"), createComplaint);
+router.post("/", protect, authorize("RESIDENT", "ADMIN"), createComplaint);
 router.get("/admin/dashboard", protect, authorize("ADMIN"), getAdminDashboard);
 router.get("/", protect, getComplaints);
 router.get("/:id", protect, getComplaintById);

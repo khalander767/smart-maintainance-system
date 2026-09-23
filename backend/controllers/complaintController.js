@@ -1,9 +1,20 @@
 import Complaint from "../models/Complaint.js";
 import User from "../models/User.js";
 
+const CATEGORY_SPECIALTY = {
+  Plumbing: "Plumber",
+  Electrical: "Electrician",
+  Lift: "Lift Technician",
+  AC: "AC Technician",
+  Carpentry: "Carpenter",
+  Cleaning: "Cleaner",
+  Security: "Security",
+  Other: "General",
+};
+
 export const createComplaint = async (req, res) => {
   try {
-    const { title, description, category, priority, images } = req.body;
+    const { title, description, category, priority, images, isEmergency } = req.body;
 
     // SLA Logic
     let slaHours;
@@ -23,6 +34,7 @@ export const createComplaint = async (req, res) => {
       description,
       category,
       priority,
+      isEmergency: isEmergency === true,
       images: safeImages,
       apartmentId: req.user.apartmentId,
       createdBy: req.user._id,
@@ -40,7 +52,7 @@ export const createComplaint = async (req, res) => {
 
 export const assignTechnician = async (req, res) => {
   try {
-    const { technicianId } = req.body;
+    const { technicianId, emergencyOverride } = req.body;
     const { id } = req.params;
 
     // Find complaint
@@ -72,11 +84,64 @@ export const assignTechnician = async (req, res) => {
       });
     }
 
+    const requiredSpecialty = CATEGORY_SPECIALTY[complaint.category];
+    const isSpecialtyMatch = technician.specialty === requiredSpecialty;
+    const activeComplaintCount = await Complaint.countDocuments({
+      assignedTo: technician._id,
+      apartmentId: req.user.apartmentId,
+      status: "IN_PROGRESS",
+    });
+    const isBusy = activeComplaintCount > 0;
+
+    if (!complaint.isEmergency) {
+      if (!isSpecialtyMatch) {
+        return res.status(400).json({
+          message: `Normal ${complaint.category} complaints must be assigned to a ${requiredSpecialty}`,
+        });
+      }
+      if (isBusy) {
+        return res.status(400).json({
+          message: "Selected technician is currently busy. Normal complaints cannot override availability.",
+        });
+      }
+    } else {
+      const technicians = await User.find({
+        role: "TECHNICIAN",
+        apartmentId: req.user.apartmentId,
+      }).select("_id");
+      const busyTechnicianIds = await Complaint.distinct("assignedTo", {
+        apartmentId: req.user.apartmentId,
+        status: "IN_PROGRESS",
+        assignedTo: { $in: technicians.map((item) => item._id) },
+      });
+      const allTechniciansBusy = technicians.length > 0 && busyTechnicianIds.length === technicians.length;
+      const needsConfirmation = !isSpecialtyMatch || (allTechniciansBusy && isBusy);
+
+      if (needsConfirmation && emergencyOverride !== true) {
+        return res.status(409).json({
+          message: "Emergency assignment needs admin confirmation.",
+          requiresEmergencyConfirmation: true,
+          isSpecialtyMatch,
+          allTechniciansBusy,
+          technicianBusy: isBusy,
+          requiredSpecialty,
+        });
+      }
+
+      // A busy technician can only be overridden when every same-apartment
+      // technician is busy; emergency does not weaken this normal safeguard.
+      if (isBusy && !allTechniciansBusy) {
+        return res.status(400).json({
+          message: "An available technician exists. Choose one before overriding a busy technician.",
+        });
+      }
+    }
+
     complaint.assignedTo = technician._id;
     complaint.status = "IN_PROGRESS";
 
     await complaint.save();
-    await complaint.populate("assignedTo", "name email");
+    await complaint.populate("assignedTo", "name email specialty");
     await complaint.populate("createdBy", "name email");
 
     res.json({
@@ -307,11 +372,14 @@ export const getAdminDashboard = async (req, res) => {
     const total = complaints.length;
 
     // Status counts
-    const statusCounts = { OPEN: 0, IN_PROGRESS: 0, RESOLVED: 0, CLOSED: 0, REOPENED: 0 };
+    // RESOLVED is an intermediate workflow state. For reporting, it belongs to
+    // the completed/CLOSED bucket so the dashboard never presents it separately.
+    const statusCounts = { OPEN: 0, IN_PROGRESS: 0, CLOSED: 0, REOPENED: 0, CANCELLED: 0 };
     let slaBreached = 0;
 
     complaints.forEach((c) => {
-      statusCounts[c.status]++;
+      const reportingStatus = c.status === "RESOLVED" ? "CLOSED" : c.status;
+      statusCounts[reportingStatus] = (statusCounts[reportingStatus] || 0) + 1;
       if (c.isSLABreached) slaBreached++;
     });
 
@@ -369,7 +437,7 @@ export const getAdminDashboard = async (req, res) => {
         _id: c._id,
         title: c.title,
         category: c.category,
-        status: c.status,
+        status: c.status === "RESOLVED" ? "CLOSED" : c.status,
         priority: c.priority,
         createdBy: c.createdBy?.name,
         createdAt: c.createdAt,
@@ -378,6 +446,7 @@ export const getAdminDashboard = async (req, res) => {
     res.json({
       total,
       statusCounts,
+      statusTotal: Object.values(statusCounts).reduce((sum, count) => sum + count, 0),
       slaBreached,
       slaBreachPercentage,
       slaCompliance,

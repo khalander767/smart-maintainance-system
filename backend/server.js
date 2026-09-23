@@ -100,12 +100,30 @@ const runAutoClose = async () => {
 
 const PORT = process.env.PORT || 8000;
 
-mongoose
-  .connect(process.env.MONGO_URI)
-  .then(() => {
-    console.log("MongoDB Connected");
+const redactMongoUri = (value = "") =>
+  value.replace(/(mongodb(?:\+srv)?:\/\/[^:/?#]+:)[^@/]+@/i, "$1<redacted>@");
+
+const connectDatabase = async () => {
+  const mongoUri = process.env.MONGO_URI;
+
+  if (!mongoUri) {
+    console.error("MongoDB connection failed: MONGO_URI is not set");
+    process.exit(1);
+  }
+
+  try {
+    console.log("MongoDB connecting...");
+    await mongoose.connect(mongoUri, { dbName: process.env.MONGO_DB_NAME });
+    console.log("MongoDB connected successfully");
+
     app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
     runAutoClose();
     setInterval(runAutoClose, 5 * 60 * 1000);
-  })
-  .catch((err) => console.log(err));
+  } catch (error) {
+    const message = redactMongoUri(error.message || String(error));
+    console.error(`MongoDB connection failed: ${message}`);
+    process.exit(1);
+  }
+};
+
+connectDatabase();

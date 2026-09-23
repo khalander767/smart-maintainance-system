@@ -25,6 +25,13 @@ const complaintSchema = new mongoose.Schema(
       default: "MEDIUM",
     },
 
+    // Emergency is distinct from ordinary HIGH priority so assignment overrides
+    // can be enforced without weakening normal specialty-based routing.
+    isEmergency: {
+      type: Boolean,
+      default: false,
+    },
+
     status: {
       type: String,
       enum: ["OPEN", "IN_PROGRESS", "RESOLVED", "CLOSED", "REOPENED", "CANCELLED"],

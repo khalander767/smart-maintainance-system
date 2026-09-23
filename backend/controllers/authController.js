@@ -55,6 +55,7 @@ export const registerAdmin = async (req, res) => {
     });
 
   } catch (error) {
+    console.error("Admin registration failed:", error);
     res.status(500).json({ message: "Something went wrong. Please try again." });
   }
 };
@@ -98,6 +99,7 @@ export const registerResident = async (req, res) => {
     });
 
   } catch (error) {
+    console.error("Resident registration failed:", error);
     res.status(500).json({ message: "Something went wrong. Please try again." });
   }
 };
@@ -148,6 +150,7 @@ export const login = async (req, res) => {
     });
 
   } catch (error) {
+    console.error("Login failed:", error);
     res.status(500).json({ message: "Something went wrong. Please try again." });
   }
 };

@@ -1,6 +1,8 @@
 import bcrypt from "bcryptjs";
 import User from "../models/User.js";
 import Complaint from "../models/Complaint.js";
+import Apartment from "../models/Apartment.js";
+import TechnicianWarning from "../models/TechnicianWarning.js";
 
 export const createUser = async (req, res) => {
   try {
@@ -108,6 +110,156 @@ export const getTechnicianPerformance = async (req, res) => {
     }
 
     res.json({ assigned, resolved, slaBreached, resolutionRate, weeklyTrend });
+  } catch (error) {
+    res.status(500).json({ message: "Something went wrong. Please try again." });
+  }
+};
+
+export const getTechnicianDetails = async (req, res) => {
+  try {
+    const technician = await User.findOne({
+      _id: req.params.id,
+      role: "TECHNICIAN",
+      apartmentId: req.user.apartmentId,
+    }).select("-password");
+    if (!technician) return res.status(404).json({ message: "Technician not found" });
+
+    const [apartment, complaints, warnings] = await Promise.all([
+      Apartment.findById(req.user.apartmentId).select("name code address"),
+      Complaint.find({ assignedTo: technician._id, apartmentId: req.user.apartmentId })
+        .populate("createdBy", "name email")
+        .sort({ createdAt: -1 }),
+      TechnicianWarning.find({ technicianId: technician._id, apartmentId: req.user.apartmentId })
+        .populate("issuedBy", "name email")
+        .sort({ createdAt: -1 }),
+    ]);
+
+    const completedStatuses = ["RESOLVED", "CLOSED"];
+    const activeStatuses = ["OPEN", "IN_PROGRESS", "REOPENED"];
+    const completed = complaints.filter((complaint) => completedStatuses.includes(complaint.status));
+    const active = complaints.filter((complaint) => activeStatuses.includes(complaint.status));
+    const inProgress = complaints.filter((complaint) => complaint.status === "IN_PROGRESS");
+    const open = complaints.filter((complaint) => complaint.status === "OPEN");
+    const recentlyCompleted = [...completed]
+      .sort((a, b) => new Date(b.resolvedAt || b.updatedAt) - new Date(a.resolvedAt || a.updatedAt))
+      .slice(0, 5);
+    const slaBreached = complaints.filter((complaint) => complaint.isSLABreached).length;
+    const completedWithinSLA = completed.filter((complaint) =>
+      complaint.resolvedAt && complaint.slaDeadline && new Date(complaint.resolvedAt) <= new Date(complaint.slaDeadline)
+    ).length;
+    const slaCompliance = complaints.length ? Math.round(((complaints.length - slaBreached) / complaints.length) * 100) : 100;
+
+    res.json({
+      technician,
+      apartment,
+      stats: {
+        totalAssigned: complaints.length,
+        totalCompleted: completed.length,
+        resolvedOrClosed: completed.length,
+        activeCount: active.length,
+        openCount: open.length,
+        inProgressCount: inProgress.length,
+        completionRate: complaints.length ? Math.round((completed.length / complaints.length) * 100) : 0,
+        totalHandled: complaints.length,
+        completedWithinSLA,
+        slaBreached,
+        slaCompliance,
+        slaPerformance: slaCompliance >= 75 ? "GOOD" : "NEEDS_ATTENTION",
+      },
+      isAvailable: inProgress.length === 0,
+      activeWarningCount: warnings.filter((warning) => warning.isActive).length,
+      warnings,
+      activeComplaints: active,
+      recentlyCompleted,
+      workHistory: complaints,
+    });
+  } catch (error) {
+    res.status(500).json({ message: "Something went wrong. Please try again." });
+  }
+};
+
+export const createTechnicianWarning = async (req, res) => {
+  try {
+    const technician = await User.findOne({
+      _id: req.params.id,
+      role: "TECHNICIAN",
+      apartmentId: req.user.apartmentId,
+    });
+    if (!technician) return res.status(404).json({ message: "Technician not found" });
+
+    const { reason, message = "" } = req.body;
+    if (typeof reason !== "string" || typeof message !== "string") {
+      return res.status(400).json({ message: "A valid warning reason and message are required" });
+    }
+    const warning = await TechnicianWarning.create({
+      technicianId: technician._id,
+      apartmentId: req.user.apartmentId,
+      issuedBy: req.user._id,
+      reason,
+      message: message.trim(),
+    });
+    await warning.populate("issuedBy", "name email");
+    res.status(201).json({ message: "Warning sent successfully", warning });
+  } catch (error) {
+    if (error.name === "ValidationError") {
+      return res.status(400).json({ message: "Invalid warning reason or message" });
+    }
+    res.status(500).json({ message: "Something went wrong. Please try again." });
+  }
+};
+
+export const updateTechnician = async (req, res) => {
+  try {
+    const technician = await User.findOne({
+      _id: req.params.id,
+      role: "TECHNICIAN",
+      apartmentId: req.user.apartmentId,
+    });
+    if (!technician) return res.status(404).json({ message: "Technician not found" });
+
+    const { name, email, specialty } = req.body;
+    if (typeof name !== "string" || !name.trim() || typeof email !== "string" || !email.trim() || typeof specialty !== "string" || !specialty) {
+      return res.status(400).json({ message: "Name, email, and specialty are required" });
+    }
+    const duplicate = await User.findOne({ email: email.trim().toLowerCase(), _id: { $ne: technician._id } });
+    if (duplicate) return res.status(400).json({ message: "Email is already in use" });
+
+    technician.name = name.trim();
+    technician.email = email.trim().toLowerCase();
+    technician.specialty = specialty;
+    await technician.save();
+    const safeTechnician = technician.toObject({ versionKey: false });
+    delete safeTechnician.password;
+    res.json({ message: "Technician updated successfully", technician: safeTechnician });
+  } catch (error) {
+    res.status(500).json({ message: "Something went wrong. Please try again." });
+  }
+};
+
+export const removeTechnician = async (req, res) => {
+  try {
+    const technician = await User.findOne({
+      _id: req.params.id,
+      role: "TECHNICIAN",
+      apartmentId: req.user.apartmentId,
+    });
+    if (!technician) return res.status(404).json({ message: "Technician not found" });
+
+    const assignedComplaints = await Complaint.find({
+      assignedTo: technician._id,
+      apartmentId: req.user.apartmentId,
+    }).select("status");
+    const activeCount = assignedComplaints.filter((complaint) => ["OPEN", "IN_PROGRESS", "REOPENED"].includes(complaint.status)).length;
+    if (assignedComplaints.length) {
+      return res.status(409).json({
+        message: "Technician cannot be removed while complaint history references them. Reassign active work first; completed history is retained to avoid broken records.",
+        activeComplaintCount: activeCount,
+        assignedComplaintCount: assignedComplaints.length,
+      });
+    }
+
+    await technician.deleteOne();
+    res.json({ message: "Technician removed successfully" });
   } catch (error) {
     res.status(500).json({ message: "Something went wrong. Please try again." });
   }
