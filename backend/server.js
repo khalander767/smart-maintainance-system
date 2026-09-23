@@ -116,7 +116,9 @@ const connectDatabase = async () => {
     await mongoose.connect(mongoUri, { dbName: process.env.MONGO_DB_NAME });
     console.log("MongoDB connected successfully");
 
-    app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
+    app.listen(PORT, "0.0.0.0", () =>
+      console.log(`Server running on port ${PORT}`)
+    );
     runAutoClose();
     setInterval(runAutoClose, 5 * 60 * 1000);
   } catch (error) {
